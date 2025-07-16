@@ -8,7 +8,6 @@ The automated build system creates binaries for the following platforms:
 
 ### Native Builds (using platform-specific runners)
 - **linux-x64**: Intel/AMD 64-bit Linux
-- **win32-x64**: Intel/AMD 64-bit Windows  
 - **darwin-x64**: Intel 64-bit macOS
 - **darwin-arm64**: ARM 64-bit macOS (Apple Silicon)
 
@@ -17,9 +16,6 @@ The automated build system creates binaries for the following platforms:
 - **linux-armhf**: ARM 32-bit Linux (glibc, hard float)
 - **alpine-x64**: Intel/AMD 64-bit Alpine Linux (musl libc)
 - **alpine-arm64**: ARM 64-bit Alpine Linux (musl libc)
-
-### Planned/Experimental
-- **win32-arm64**: ARM 64-bit Windows (requires LLVM-MinGW)
 
 ## Build Status
 
@@ -122,6 +118,5 @@ The build process uses:
 - Native compilers for primary platforms
 - GCC cross-compilers for Linux ARM targets
 - musl-cross toolchain for Alpine Linux targets
-- MinGW-w64 for Windows targets
 
 All binaries are statically linked where possible for maximum compatibility.

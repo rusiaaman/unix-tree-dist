@@ -46,19 +46,6 @@ ifeq ($(TARGET),alpine-arm64)
 	LDFLAGS+=-static
 endif
 
-ifeq ($(TARGET),win32-x64)
-	CC=x86_64-w64-mingw32-gcc
-	TREE_DEST=tree.exe
-	CFLAGS+=-static
-	LDFLAGS+=-static
-endif
-
-ifeq ($(TARGET),win32-arm64)
-	CC=aarch64-w64-mingw32-gcc
-	TREE_DEST=tree.exe
-	CFLAGS+=-static
-	LDFLAGS+=-static
-endif
 
 ifeq ($(TARGET),darwin-x64)
 	CC=x86_64-apple-darwin21-clang
@@ -106,12 +93,6 @@ alpine-x64:
 alpine-arm64:
 	$(MAKE) -f Makefile.cross TARGET=alpine-arm64
 
-win32-x64:
-	$(MAKE) -f Makefile.cross TARGET=win32-x64
-
-win32-arm64:
-	$(MAKE) -f Makefile.cross TARGET=win32-arm64
-
 darwin-x64:
 	$(MAKE) -f Makefile.cross TARGET=darwin-x64
 
@@ -119,6 +100,6 @@ darwin-arm64:
 	$(MAKE) -f Makefile.cross TARGET=darwin-arm64
 
 # Build all targets (requires all cross-compilers to be installed)
-all-targets: linux-x64 linux-arm64 linux-armhf alpine-x64 alpine-arm64 win32-x64 win32-arm64 darwin-x64 darwin-arm64
+all-targets: linux-x64 linux-arm64 linux-armhf alpine-x64 alpine-arm64 darwin-x64 darwin-arm64
 
-.PHONY: all clean install linux-x64 linux-arm64 linux-armhf alpine-x64 alpine-arm64 win32-x64 win32-arm64 darwin-x64 darwin-arm64 all-targets
+.PHONY: all clean install linux-x64 linux-arm64 linux-armhf alpine-x64 alpine-arm64 darwin-x64 darwin-arm64 all-targets

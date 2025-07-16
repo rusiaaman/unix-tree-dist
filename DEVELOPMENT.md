@@ -23,7 +23,7 @@ sudo ./setup-cross-compile.sh --skip-osxcross  # Skip macOS toolchain
 ```bash
 # Using the cross-compilation Makefile
 make -f Makefile.cross linux-arm64
-make -f Makefile.cross win32-x64
+make -f Makefile.cross alpine-x64
 make -f Makefile.cross darwin-arm64
 
 # Or build all targets
@@ -33,7 +33,7 @@ make -f Makefile.cross all-targets
 ## GitHub Actions Workflows
 
 ### Native Build Workflow (`build-native.yml`)
-- Builds on native runners (Ubuntu, Windows, macOS)
+- Builds on native runners (Ubuntu, macOS)
 - Most reliable for primary platforms
 - Triggered on tag pushes and pull requests
 
@@ -81,7 +81,6 @@ make -f Makefile.cross TARGET=alpine-x64
 
 ### Native Builds
 - `linux-x64`: Native Linux x86_64
-- `win32-x64`: Native Windows x86_64
 - `darwin-x64`: Native macOS x86_64
 - `darwin-arm64`: Native macOS ARM64
 
@@ -90,9 +89,6 @@ make -f Makefile.cross TARGET=alpine-x64
 - `linux-armhf`: ARM32 Linux (glibc, hard float)
 - `alpine-x64`: Alpine Linux x86_64 (musl)
 - `alpine-arm64`: Alpine Linux ARM64 (musl)
-
-### Experimental
-- `win32-arm64`: Windows ARM64 (requires LLVM-MinGW)
 
 ## Testing
 

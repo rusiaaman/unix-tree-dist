@@ -56,11 +56,9 @@ detect_platform() {
         Darwin)
             echo "darwin-${arch}"
             ;;
-        CYGWIN*|MINGW*|MSYS*)
-            echo "win32-${arch}"
-            ;;
         *)
             print_color $RED "Error: Unsupported operating system: $os"
+            print_color $RED "Supported: Linux, macOS (Darwin)"
             exit 1
             ;;
     esac
@@ -83,12 +81,8 @@ install_binary() {
     # Create install directory if it doesn't exist
     mkdir -p "$install_dir"
     
-    # Determine binary name
-    if [[ $target == win32-* ]]; then
-        binary_name="tree.exe"
-    else
-        binary_name="tree"
-    fi
+    # All targets use 'tree' binary name
+    binary_name="tree"
     
     # Download URL
     download_url="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${version}/tree-${target}-${binary_name}"
@@ -147,7 +141,6 @@ main() {
                 echo "Supported targets:"
                 echo "  linux-x64, linux-arm64, linux-armhf"
                 echo "  alpine-x64, alpine-arm64"
-                echo "  win32-x64, win32-arm64"
                 echo "  darwin-x64, darwin-arm64"
                 exit 0
                 ;;

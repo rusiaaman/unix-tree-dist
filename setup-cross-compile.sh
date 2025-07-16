@@ -40,8 +40,6 @@ install_ubuntu_packages() {
         gcc-multilib \
         gcc-aarch64-linux-gnu \
         gcc-arm-linux-gnueabihf \
-        gcc-mingw-w64-x86-64 \
-        gcc-mingw-w64-i686 \
         libc6-dev-i386 \
         libc6-dev-arm64-cross \
         libc6-dev-armhf-cross \
@@ -79,25 +77,6 @@ install_musl_cross() {
     print_color $GREEN "musl cross-compilers installed successfully"
 }
 
-install_llvm_mingw() {
-    print_section "Installing LLVM-MinGW for Windows ARM64"
-    
-    local install_dir="/usr/local"
-    local temp_dir="/tmp/llvm-mingw"
-    
-    mkdir -p "$temp_dir"
-    
-    print_color $YELLOW "Installing LLVM-MinGW for ARM64 Windows support..."
-    curl -L https://github.com/mstorsjo/llvm-mingw/releases/download/20240518/llvm-mingw-20240518-msvcrt-ubuntu-20.04-x86_64.tar.xz | tar -xJf - -C "$temp_dir"
-    
-    sudo cp -r "$temp_dir/llvm-mingw-20240518-msvcrt-ubuntu-20.04-x86_64"/* "$install_dir/"
-    
-    # Create symlink for easier access
-    sudo ln -sf "${install_dir}/bin/aarch64-w64-mingw32-clang" "${install_dir}/bin/aarch64-w64-mingw32-gcc"
-    
-    rm -rf "$temp_dir"
-    print_color $GREEN "LLVM-MinGW installed successfully"
-}
 
 install_osxcross() {
     print_section "Installing OSXCross for macOS"
@@ -138,10 +117,8 @@ verify_toolchains() {
         "gcc"
         "aarch64-linux-gnu-gcc"
         "arm-linux-gnueabihf-gcc"
-        "x86_64-w64-mingw32-gcc"
         "x86_64-linux-musl-gcc"
         "aarch64-linux-musl-gcc"
-        "aarch64-w64-mingw32-gcc"
         "x86_64-apple-darwin21-clang"
         "aarch64-apple-darwin21-clang"
     )
@@ -171,8 +148,6 @@ test_build() {
         "linux-armhf"
         "alpine-x64"
         "alpine-arm64"
-        "win32-x64"
-        "win32-arm64"
         "darwin-x64"
         "darwin-arm64"
     )
@@ -231,7 +206,6 @@ main() {
                 echo "Options:"
                 echo "  --skip-packages    Skip Ubuntu/Debian package installation"
                 echo "  --skip-musl        Skip musl cross-compiler installation"
-                echo "  --skip-llvm-mingw  Skip LLVM-MinGW installation"
                 echo "  --skip-osxcross    Skip OSXCross installation"
                 echo "  --test-only        Only run tests, don't install anything"
                 echo "  --help             Show this help"
@@ -253,7 +227,6 @@ main() {
     # Install components
     [ "$skip_packages" != "1" ] && install_ubuntu_packages
     [ "$skip_musl" != "1" ] && install_musl_cross
-    [ "$skip_llvm_mingw" != "1" ] && install_llvm_mingw
     [ "$skip_osxcross" != "1" ] && install_osxcross
     
     # Verify and test

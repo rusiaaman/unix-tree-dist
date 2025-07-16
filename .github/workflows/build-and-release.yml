@@ -37,21 +37,6 @@ jobs:
             cflags: "-O3 -static"
             ldflags: "-static"
             output: tree
-          # Windows builds
-          - target: win32-x64
-            arch: x86_64
-            os: windows
-            cc: x86_64-w64-mingw32-gcc
-            cflags: "-O3 -static"
-            ldflags: "-static"
-            output: tree.exe
-          - target: win32-arm64
-            arch: aarch64
-            os: windows
-            cc: aarch64-w64-mingw32-gcc
-            cflags: "-O3 -static"
-            ldflags: "-static"
-            output: tree.exe
           # macOS builds
           - target: darwin-x64
             arch: x86_64
@@ -89,8 +74,6 @@ jobs:
         # Install available cross-compilation tools
         sudo apt-get install -y \
           gcc-multilib \
-          gcc-mingw-w64-x86-64 \
-          gcc-mingw-w64-i686 \
           libc6-dev-i386 || true
         
         # Try to install ARM cross-compilers, but don't fail if they're not available
@@ -126,25 +109,6 @@ jobs:
         # Clean up
         rm -rf /tmp/musl-cross
 
-    - name: Install Windows ARM64 cross-compiler
-      if: matrix.target == 'win32-arm64'
-      run: |
-        # Install llvm-mingw for ARM64 Windows support
-        echo "Installing LLVM-MinGW for ARM64 Windows..."
-        
-        # Create temporary directory
-        mkdir -p /tmp/llvm-mingw
-        
-        # Download and install
-        curl -L https://github.com/mstorsjo/llvm-mingw/releases/download/20240518/llvm-mingw-20240518-msvcrt-ubuntu-20.04-x86_64.tar.xz | tar -xJf - -C /tmp/llvm-mingw/
-        
-        sudo cp -r /tmp/llvm-mingw/llvm-mingw-20240518-msvcrt-ubuntu-20.04-x86_64/* /usr/local/
-        
-        # Create symlink for aarch64-w64-mingw32-gcc
-        sudo ln -sf /usr/local/bin/aarch64-w64-mingw32-clang /usr/local/bin/aarch64-w64-mingw32-gcc
-        
-        # Clean up
-        rm -rf /tmp/llvm-mingw
 
     - name: Setup OSXCross for macOS
       if: matrix.os == 'darwin'
@@ -297,16 +261,12 @@ jobs:
         mkdir -p release
         
         # Create compressed archives for each platform
-        for target in linux-x64 linux-arm64 linux-armhf alpine-x64 alpine-arm64 win32-x64 win32-arm64 darwin-x64 darwin-arm64; do
+        for target in linux-x64 alpine-x64 alpine-arm64 darwin-x64 darwin-arm64; do
           if [[ -d "artifacts/tree-$target" ]]; then
             cd artifacts/tree-$target
             
-            # Determine file extension
-            if [[ "$target" == win32-* ]]; then
-              binary_name="tree.exe"
-            else
-              binary_name="tree"
-            fi
+            # All remaining targets use 'tree' binary name
+            binary_name="tree"
             
             # Create tar.gz for the binary
             tar -czf "../../release/tree-$target.tar.gz" "$binary_name"
@@ -341,10 +301,6 @@ jobs:
           ### Alpine Linux
           - **alpine-x64**: Intel/AMD 64-bit Alpine Linux (musl libc)
           - **alpine-arm64**: ARM 64-bit Alpine Linux (musl libc)
-          
-          ### Windows
-          - **win32-x64**: Intel/AMD 64-bit Windows
-          - **win32-arm64**: ARM 64-bit Windows
           
           ### macOS
           - **darwin-x64**: Intel 64-bit macOS
