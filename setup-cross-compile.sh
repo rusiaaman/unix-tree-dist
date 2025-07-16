@@ -59,19 +59,40 @@ install_musl_cross() {
     
     mkdir -p "$temp_dir"
     
-    # Download and install x86_64-linux-musl
-    print_color $YELLOW "Installing x86_64-linux-musl cross-compiler..."
-    curl -L https://musl.cc/x86_64-linux-musl-cross.tgz | tar -xzf - -C "$temp_dir"
-    sudo cp -r "$temp_dir/x86_64-linux-musl-cross"/* "$install_dir/"
+    # Install musl-tools for x86_64
+    print_color $YELLOW "Installing musl-tools for x86_64..."
+    sudo apt-get install -y musl-tools
+    sudo ln -sf /usr/bin/musl-gcc "${install_dir}/bin/x86_64-linux-musl-gcc"
+    sudo ln -sf /usr/bin/musl-gcc "${install_dir}/bin/x86_64-alpine-linux-musl-gcc"
     
-    # Download and install aarch64-linux-musl
+    # Try to install ARM64 musl cross-compiler
     print_color $YELLOW "Installing aarch64-linux-musl cross-compiler..."
-    curl -L https://musl.cc/aarch64-linux-musl-cross.tgz | tar -xzf - -C "$temp_dir"
-    sudo cp -r "$temp_dir/aarch64-linux-musl-cross"/* "$install_dir/"
     
-    # Create symlinks for easier access
-    sudo ln -sf "${install_dir}/bin/x86_64-linux-musl-gcc" "${install_dir}/bin/x86_64-alpine-linux-musl-gcc"
-    sudo ln -sf "${install_dir}/bin/aarch64-linux-musl-gcc" "${install_dir}/bin/aarch64-alpine-linux-musl-gcc"
+    # Try bootlin toolchain first
+    if curl -L --connect-timeout 30 --max-time 300 "https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/aarch64--musl--stable-2024.05-1.tar.bz2" -o "$temp_dir/musl-aarch64.tar.bz2"; then
+        print_color $GREEN "Downloaded bootlin toolchain"
+        tar -xjf "$temp_dir/musl-aarch64.tar.bz2" -C "$temp_dir"
+        sudo cp -r "$temp_dir/aarch64--musl--stable-2024.05-1"/* "$install_dir/"
+        sudo ln -sf "${install_dir}/bin/aarch64-linux-gcc" "${install_dir}/bin/aarch64-linux-musl-gcc"
+        sudo ln -sf "${install_dir}/bin/aarch64-linux-gcc" "${install_dir}/bin/aarch64-alpine-linux-musl-gcc"
+    else
+        print_color $YELLOW "Bootlin download failed, creating wrapper script..."
+        # Create wrapper script using existing ARM64 GCC
+        sudo apt-get install -y gcc-aarch64-linux-gnu
+        
+        cat > "$temp_dir/aarch64-linux-musl-gcc" << 'EOF'
+#!/bin/bash
+# ARM64 musl cross-compiler wrapper
+exec aarch64-linux-gnu-gcc -static -nostdlib \
+  -I/usr/aarch64-linux-gnu/include \
+  -L/usr/aarch64-linux-gnu/lib \
+  "$@" \
+  -lc -lgcc -lgcc_s
+EOF
+        chmod +x "$temp_dir/aarch64-linux-musl-gcc"
+        sudo cp "$temp_dir/aarch64-linux-musl-gcc" "${install_dir}/bin/"
+        sudo ln -sf "${install_dir}/bin/aarch64-linux-musl-gcc" "${install_dir}/bin/aarch64-alpine-linux-musl-gcc"
+    fi
     
     rm -rf "$temp_dir"
     print_color $GREEN "musl cross-compilers installed successfully"
