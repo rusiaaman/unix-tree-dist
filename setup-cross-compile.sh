@@ -65,19 +65,26 @@ install_musl_cross() {
     sudo ln -sf /usr/bin/musl-gcc "${install_dir}/bin/x86_64-linux-musl-gcc"
     sudo ln -sf /usr/bin/musl-gcc "${install_dir}/bin/x86_64-alpine-linux-musl-gcc"
     
-    # Try to install ARM64 musl cross-compiler
+    # Try to install ARM64 musl cross-compiler with multiple fallback methods
     print_color $YELLOW "Installing aarch64-linux-musl cross-compiler..."
     
-    # Try bootlin toolchain first
-    if curl -L --connect-timeout 30 --max-time 300 "https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/aarch64--musl--stable-2024.05-1.tar.bz2" -o "$temp_dir/musl-aarch64.tar.bz2"; then
+    # Method 1: Try musl.cc prebuilt binaries
+    if curl -L --connect-timeout 20 --max-time 120 --fail "https://musl.cc/aarch64-linux-musl-cross.tgz" -o "$temp_dir/musl-aarch64.tgz" 2>/dev/null; then
+        print_color $GREEN "Downloaded musl.cc toolchain"
+        tar -xzf "$temp_dir/musl-aarch64.tgz" -C "$temp_dir"
+        sudo cp -r "$temp_dir/aarch64-linux-musl-cross"/* "$install_dir/"
+        sudo ln -sf "${install_dir}/bin/aarch64-linux-musl-gcc" "${install_dir}/bin/aarch64-linux-musl-gcc"
+        sudo ln -sf "${install_dir}/bin/aarch64-linux-musl-gcc" "${install_dir}/bin/aarch64-alpine-linux-musl-gcc"
+    # Method 2: Try bootlin toolchain
+    elif curl -L --connect-timeout 20 --max-time 120 --fail "https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/aarch64--musl--stable-2024.05-1.tar.bz2" -o "$temp_dir/musl-aarch64.tar.bz2" 2>/dev/null; then
         print_color $GREEN "Downloaded bootlin toolchain"
         tar -xjf "$temp_dir/musl-aarch64.tar.bz2" -C "$temp_dir"
         sudo cp -r "$temp_dir/aarch64--musl--stable-2024.05-1"/* "$install_dir/"
         sudo ln -sf "${install_dir}/bin/aarch64-linux-gcc" "${install_dir}/bin/aarch64-linux-musl-gcc"
         sudo ln -sf "${install_dir}/bin/aarch64-linux-gcc" "${install_dir}/bin/aarch64-alpine-linux-musl-gcc"
     else
-        print_color $YELLOW "Bootlin download failed, creating wrapper script..."
-        # Create wrapper script using existing ARM64 GCC
+        print_color $YELLOW "All external downloads failed, creating wrapper script..."
+        # Method 3: Create wrapper script using existing ARM64 GCC
         sudo apt-get install -y gcc-aarch64-linux-gnu
         
         cat > "$temp_dir/aarch64-linux-musl-gcc" << 'EOF'

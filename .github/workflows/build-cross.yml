@@ -6,10 +6,15 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-cross:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
+      fail-fast: false
       matrix:
         include:
           # Linux ARM builds using standard packages
@@ -73,35 +78,46 @@ jobs:
           sudo ln -sf /usr/bin/musl-gcc /usr/local/bin/x86_64-linux-musl-gcc
           
         elif [[ "${{ matrix.arch }}" == "aarch64" ]]; then
-          # For ARM64, try multiple sources
+          # For ARM64, use multiple fallback methods
           echo "Installing ARM64 musl cross-compiler..."
           
-          # Try bootlin toolchain first
-          echo "Trying bootlin toolchain..."
-          if curl -L --connect-timeout 30 --max-time 300 "https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/aarch64--musl--stable-2024.05-1.tar.bz2" -o /tmp/musl-aarch64.tar.bz2; then
-            echo "Downloaded bootlin toolchain, extracting..."
-            tar -xjf /tmp/musl-aarch64.tar.bz2 -C /tmp/
-            sudo cp -r /tmp/aarch64--musl--stable-2024.05-1/bin/* /usr/local/bin/ || true
-            sudo cp -r /tmp/aarch64--musl--stable-2024.05-1/lib/* /usr/local/lib/ || true
-            # Create the expected symlink
-            sudo ln -sf /usr/local/bin/aarch64-linux-gcc /usr/local/bin/aarch64-linux-musl-gcc || true
+          # Method 1: Try musl-cross-make prebuilt binaries
+          echo "Trying musl-cross-make prebuilt binaries..."
+          if curl -L --connect-timeout 20 --max-time 120 --fail "https://musl.cc/aarch64-linux-musl-cross.tgz" -o /tmp/musl-aarch64.tgz 2>/dev/null; then
+            echo "Downloaded musl.cc toolchain, extracting..."
+            tar -xzf /tmp/musl-aarch64.tgz -C /tmp/
+            sudo cp -r /tmp/aarch64-linux-musl-cross/bin/* /usr/local/bin/ || true
+            sudo cp -r /tmp/aarch64-linux-musl-cross/lib/* /usr/local/lib/ || true
+            # Create expected symlink
+            sudo ln -sf /usr/local/bin/aarch64-linux-musl-gcc /usr/local/bin/aarch64-linux-musl-gcc || true
           else
-            echo "Bootlin download failed, trying alternative method..."
-            # Build a simple cross-compiler using existing ARM64 GCC with musl
-            sudo apt-get install -y gcc-aarch64-linux-gnu
-            
-            # Create wrapper script for musl cross-compilation
-            cat > /tmp/aarch64-linux-musl-gcc << 'EOF'
+            echo "musl.cc download failed, trying bootlin toolchain..."
+            # Method 2: Try bootlin toolchain
+            if curl -L --connect-timeout 20 --max-time 120 --fail "https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/aarch64--musl--stable-2024.05-1.tar.bz2" -o /tmp/musl-aarch64.tar.bz2 2>/dev/null; then
+              echo "Downloaded bootlin toolchain, extracting..."
+              tar -xjf /tmp/musl-aarch64.tar.bz2 -C /tmp/
+              sudo cp -r /tmp/aarch64--musl--stable-2024.05-1/bin/* /usr/local/bin/ || true
+              sudo cp -r /tmp/aarch64--musl--stable-2024.05-1/lib/* /usr/local/lib/ || true
+              # Create the expected symlink
+              sudo ln -sf /usr/local/bin/aarch64-linux-gcc /usr/local/bin/aarch64-linux-musl-gcc || true
+            else
+              echo "All external downloads failed, using wrapper method..."
+              # Method 3: Create wrapper script using existing ARM64 GCC
+              sudo apt-get install -y gcc-aarch64-linux-gnu
+              
+              # Create wrapper script for musl cross-compilation
+              cat > /tmp/aarch64-linux-musl-gcc << 'EOF'
 #!/bin/bash
-# Simple ARM64 musl cross-compiler wrapper
+# ARM64 musl cross-compiler wrapper
 exec aarch64-linux-gnu-gcc -static -nostdlib \
   -I/usr/aarch64-linux-gnu/include \
   -L/usr/aarch64-linux-gnu/lib \
   "$@" \
   -lc -lgcc -lgcc_s
 EOF
-            chmod +x /tmp/aarch64-linux-musl-gcc
-            sudo cp /tmp/aarch64-linux-musl-gcc /usr/local/bin/
+              chmod +x /tmp/aarch64-linux-musl-gcc
+              sudo cp /tmp/aarch64-linux-musl-gcc /usr/local/bin/
+            fi
           fi
         fi
 
@@ -116,13 +132,24 @@ EOF
         else
           echo "✗ Compiler not found: ${{ matrix.cc }}"
           echo "Available compilers:"
-          ls /usr/local/bin/*gcc* || true
-          ls /usr/bin/*gcc* || true
+          ls /usr/local/bin/*gcc* 2>/dev/null || echo "No compilers in /usr/local/bin"
+          ls /usr/bin/*gcc* 2>/dev/null || echo "No compilers in /usr/bin"
           
           # For Alpine builds, this might be expected if we're using fallback
           if [[ "${{ matrix.target }}" == "alpine-"* ]]; then
-            echo "Alpine build - will try fallback compiler during build"
+            echo "Alpine build - will try fallback compilers during build"
+            
+            # Check for fallback compilers
+            if command -v gcc &> /dev/null; then
+              echo "✓ Fallback compiler available: gcc"
+              gcc --version
+            fi
+            if command -v aarch64-linux-gnu-gcc &> /dev/null; then
+              echo "✓ Fallback compiler available: aarch64-linux-gnu-gcc"
+              aarch64-linux-gnu-gcc --version
+            fi
           else
+            echo "Non-Alpine build requires the specific compiler"
             exit 1
           fi
         fi
@@ -134,25 +161,63 @@ EOF
         
         # Special handling for Alpine builds
         if [[ "${{ matrix.target }}" == "alpine-"* ]]; then
-          # For Alpine builds, try multiple approaches
           echo "Building for Alpine Linux..."
           
-          # Try static linking with musl
-          if make TREE_DEST="${{ matrix.output }}" \
-               CC="${{ matrix.cc }}" \
-               CFLAGS="${{ matrix.cflags }}" \
-               LDFLAGS="${{ matrix.ldflags }}"; then
-            echo "Alpine build successful"
-          else
-            echo "Alpine build failed, trying fallback approach..."
-            # Fallback: use regular gcc with static linking
-            make TREE_DEST="${{ matrix.output }}" \
+          # Try multiple build approaches in order of preference
+          BUILD_SUCCESS=false
+          
+          # Method 1: Try with the expected musl compiler
+          if command -v ${{ matrix.cc }} &> /dev/null; then
+            echo "Trying build with ${{ matrix.cc }}..."
+            if make TREE_DEST="${{ matrix.output }}" \
+                 CC="${{ matrix.cc }}" \
+                 CFLAGS="${{ matrix.cflags }}" \
+                 LDFLAGS="${{ matrix.ldflags }}"; then
+              echo "✓ Alpine build successful with ${{ matrix.cc }}"
+              BUILD_SUCCESS=true
+            else
+              echo "✗ Build failed with ${{ matrix.cc }}"
+              make clean || true
+            fi
+          fi
+          
+          # Method 2: Try with static GCC if musl compiler failed
+          if [[ "$BUILD_SUCCESS" != "true" ]]; then
+            echo "Trying fallback build with static GCC..."
+            if make TREE_DEST="${{ matrix.output }}" \
                  CC="gcc" \
                  CFLAGS="-O3 -static" \
-                 LDFLAGS="-static"
+                 LDFLAGS="-static"; then
+              echo "✓ Alpine build successful with static GCC"
+              BUILD_SUCCESS=true
+            else
+              echo "✗ Build failed with static GCC"
+              make clean || true
+            fi
           fi
+          
+          # Method 3: Try with cross-compiler for ARM64
+          if [[ "$BUILD_SUCCESS" != "true" && "${{ matrix.arch }}" == "aarch64" ]]; then
+            echo "Trying build with aarch64-linux-gnu-gcc..."
+            if make TREE_DEST="${{ matrix.output }}" \
+                 CC="aarch64-linux-gnu-gcc" \
+                 CFLAGS="-O3 -static" \
+                 LDFLAGS="-static"; then
+              echo "✓ Alpine build successful with aarch64-linux-gnu-gcc"
+              BUILD_SUCCESS=true
+            else
+              echo "✗ Build failed with aarch64-linux-gnu-gcc"
+            fi
+          fi
+          
+          if [[ "$BUILD_SUCCESS" != "true" ]]; then
+            echo "All build methods failed for Alpine target"
+            exit 1
+          fi
+          
         else
           # Regular build for non-Alpine targets
+          echo "Building for ${{ matrix.target }}..."
           make TREE_DEST="${{ matrix.output }}" \
                CC="${{ matrix.cc }}" \
                CFLAGS="${{ matrix.cflags }}" \
@@ -167,14 +232,16 @@ EOF
         mkdir -p dist
         cp ${{ matrix.output }} dist/
         
-        # Strip binary
-        strip dist/${{ matrix.output }} || true
+        # Strip binary (may fail for cross-compiled binaries)
+        strip dist/${{ matrix.output }} || echo "Note: Could not strip binary (normal for cross-compilation)"
         
         # Create info file
         echo "Tree v2.2.1 - ${{ matrix.target }}" > dist/README.txt
         echo "Built on: $(date)" >> dist/README.txt
         echo "Compiler: ${{ matrix.cc }}" >> dist/README.txt
         echo "Architecture: ${{ matrix.arch }}" >> dist/README.txt
+        echo "File info:" >> dist/README.txt
+        file dist/${{ matrix.output }} >> dist/README.txt
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
