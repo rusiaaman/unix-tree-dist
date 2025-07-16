@@ -6,22 +6,20 @@ This repository contains an automated build system for the Unix `tree` command, 
 
 The automated build system creates binaries for the following platforms:
 
-### Linux
-- **linux-x64**: Intel/AMD 64-bit Linux (glibc)
+### Native Builds (using platform-specific runners)
+- **linux-x64**: Intel/AMD 64-bit Linux
+- **win32-x64**: Intel/AMD 64-bit Windows  
+- **darwin-x64**: Intel 64-bit macOS
+- **darwin-arm64**: ARM 64-bit macOS (Apple Silicon)
+
+### Cross-Compiled Builds (using cross-compilation toolchains)
 - **linux-arm64**: ARM 64-bit Linux (glibc)
 - **linux-armhf**: ARM 32-bit Linux (glibc, hard float)
-
-### Alpine Linux
 - **alpine-x64**: Intel/AMD 64-bit Alpine Linux (musl libc)
 - **alpine-arm64**: ARM 64-bit Alpine Linux (musl libc)
 
-### Windows
-- **win32-x64**: Intel/AMD 64-bit Windows
-- **win32-arm64**: ARM 64-bit Windows
-
-### macOS
-- **darwin-x64**: Intel 64-bit macOS
-- **darwin-arm64**: ARM 64-bit macOS (Apple Silicon)
+### Planned/Experimental
+- **win32-arm64**: ARM 64-bit Windows (requires LLVM-MinGW)
 
 ## Download
 
@@ -80,17 +78,28 @@ Tree is released under the GNU General Public License v2.0. See the `LICENSE` fi
 
 ## Automated Builds
 
-This repository uses GitHub Actions to automatically build binaries for all supported platforms. The workflow is triggered on:
+This repository uses GitHub Actions to automatically build binaries for all supported platforms. There are two main workflows:
 
-- Push to tags starting with 'v' (creates a release)
-- Pull requests to main branch (for testing)
-- Manual workflow dispatch
+### Native Builds (`build-native.yml`)
+- Uses platform-specific GitHub runners (Ubuntu, Windows, macOS)
+- Provides the most reliable builds for primary platforms
+- Triggered on tag pushes and pull requests
 
-The build process uses various cross-compilation toolchains:
+### Cross-Compilation Builds (`build-cross.yml`)
+- Uses cross-compilation toolchains on Ubuntu runners
+- Provides builds for additional architectures (ARM, Alpine)
+- Triggered on tag pushes and manual dispatch
+
+### Legacy Cross-Compilation (`build-and-release.yml`)
+- Comprehensive cross-compilation setup (may have reliability issues)
+- Includes experimental Windows ARM64 and macOS cross-compilation
+- Available for reference and advanced users
+
+### Build Process
+The build process uses:
+- Native compilers for primary platforms
 - GCC cross-compilers for Linux ARM targets
+- musl-cross toolchain for Alpine Linux targets
 - MinGW-w64 for Windows targets
-- LLVM-MinGW for Windows ARM64 targets
-- OSXCross for macOS targets
-- musl-cross for Alpine Linux targets
 
 All binaries are statically linked where possible for maximum compatibility.

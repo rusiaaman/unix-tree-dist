@@ -1,0 +1,157 @@
+name: Build Native
+
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-native:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+            output: tree
+          - os: windows-latest
+            target: win32-x64
+            output: tree.exe
+          - os: macos-latest
+            target: darwin-x64
+            output: tree
+          - os: macos-13
+            target: darwin-arm64
+            output: tree
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install build tools (Linux)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential
+    
+    - name: Install build tools (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        # MinGW-w64 should be available in the GitHub Actions Windows runner
+        echo "Using default Windows toolchain"
+    
+    - name: Install build tools (macOS)
+      if: runner.os == 'macOS'
+      run: |
+        # Xcode command line tools should be available
+        echo "Using default macOS toolchain"
+    
+    - name: Build
+      run: |
+        make clean || true
+        
+        # Build with optimizations
+        make TREE_DEST="${{ matrix.output }}" CFLAGS="-O3" LDFLAGS="-s"
+        
+        # Verify the binary was created
+        ls -la ${{ matrix.output }}
+        
+        # Test the binary
+        ./${{ matrix.output }} --version
+        ./${{ matrix.output }} -L 1 .
+    
+    - name: Prepare artifact
+      run: |
+        mkdir -p dist
+        cp ${{ matrix.output }} dist/
+        
+        # Create a simple info file
+        echo "Tree v2.2.1 - ${{ matrix.target }}" > dist/README.txt
+        echo "Built on: $(date)" >> dist/README.txt
+        echo "Platform: ${{ runner.os }}" >> dist/README.txt
+        echo "Runner: ${{ runner.name }}" >> dist/README.txt
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: tree-${{ matrix.target }}
+        path: dist/
+        retention-days: 30
+
+  release:
+    needs: build-native
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release
+        
+        # Create compressed archives for each platform
+        for target in linux-x64 win32-x64 darwin-x64 darwin-arm64; do
+          if [[ -d "artifacts/tree-$target" ]]; then
+            cd artifacts/tree-$target
+            
+            # Determine file extension
+            if [[ "$target" == win32-* ]]; then
+              binary_name="tree.exe"
+            else
+              binary_name="tree"
+            fi
+            
+            # Create tar.gz for the binary and info
+            tar -czf "../../release/tree-$target.tar.gz" *
+            
+            # Also create individual binary for direct download
+            cp "$binary_name" "../../release/tree-$target-$binary_name"
+            
+            cd ../..
+          fi
+        done
+        
+        # List all release files
+        ls -la release/
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: release/*
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+        body: |
+          ## Tree Command Line Tool - Native Builds
+          
+          This release contains pre-built binaries for major platforms using native compilation:
+          
+          ### Available Platforms
+          - **linux-x64**: Intel/AMD 64-bit Linux
+          - **win32-x64**: Intel/AMD 64-bit Windows
+          - **darwin-x64**: Intel 64-bit macOS
+          - **darwin-arm64**: ARM 64-bit macOS (Apple Silicon)
+          
+          ### Usage
+          
+          1. Download the appropriate binary for your platform
+          2. Extract the archive (if .tar.gz) or use the direct binary
+          3. Make executable (Linux/macOS): `chmod +x tree`
+          4. Run: `./tree --help`
+          
+          ### Note
+          
+          These are native builds compiled on GitHub Actions runners. For additional platforms 
+          (ARM Linux, Alpine Linux, etc.), see the cross-compilation workflow.
+          
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

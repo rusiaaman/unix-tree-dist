@@ -1,0 +1,196 @@
+name: Build Cross-Platform
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-cross:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Linux ARM builds using standard packages
+          - target: linux-arm64
+            arch: aarch64
+            cc: aarch64-linux-gnu-gcc
+            cflags: "-O3 -static"
+            ldflags: "-static"
+            output: tree
+            packages: "gcc-aarch64-linux-gnu libc6-dev-arm64-cross"
+          - target: linux-armhf
+            arch: armhf
+            cc: arm-linux-gnueabihf-gcc
+            cflags: "-O3 -static"
+            ldflags: "-static"
+            output: tree
+            packages: "gcc-arm-linux-gnueabihf libc6-dev-armhf-cross"
+          # Alpine Linux builds using musl
+          - target: alpine-x64
+            arch: x86_64
+            cc: x86_64-linux-musl-gcc
+            cflags: "-O3 -static"
+            ldflags: "-static"
+            output: tree
+            packages: ""
+          - target: alpine-arm64
+            arch: aarch64
+            cc: aarch64-linux-musl-gcc
+            cflags: "-O3 -static"
+            ldflags: "-static"
+            output: tree
+            packages: ""
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install base tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          curl \
+          xz-utils \
+          file
+
+    - name: Install cross-compilation packages
+      if: matrix.packages != ''
+      run: |
+        # Try to install cross-compilation packages
+        sudo apt-get install -y ${{ matrix.packages }} || echo "Could not install packages, will try alternative method"
+
+    - name: Install musl cross-compilers
+      if: startsWith(matrix.target, 'alpine-')
+      run: |
+        echo "Installing musl cross-compiler for ${{ matrix.target }}"
+        
+        # Download appropriate musl cross-compiler
+        if [[ "${{ matrix.arch }}" == "x86_64" ]]; then
+          curl -L https://musl.cc/x86_64-linux-musl-cross.tgz | tar -xzf - -C /tmp/
+          sudo cp -r /tmp/x86_64-linux-musl-cross/bin/* /usr/local/bin/
+          sudo cp -r /tmp/x86_64-linux-musl-cross/lib/* /usr/local/lib/ || true
+          sudo cp -r /tmp/x86_64-linux-musl-cross/include/* /usr/local/include/ || true
+        elif [[ "${{ matrix.arch }}" == "aarch64" ]]; then
+          curl -L https://musl.cc/aarch64-linux-musl-cross.tgz | tar -xzf - -C /tmp/
+          sudo cp -r /tmp/aarch64-linux-musl-cross/bin/* /usr/local/bin/
+          sudo cp -r /tmp/aarch64-linux-musl-cross/lib/* /usr/local/lib/ || true
+          sudo cp -r /tmp/aarch64-linux-musl-cross/include/* /usr/local/include/ || true
+        fi
+
+    - name: Verify compiler
+      run: |
+        export PATH="/usr/local/bin:$PATH"
+        echo "Checking for compiler: ${{ matrix.cc }}"
+        
+        if command -v ${{ matrix.cc }} &> /dev/null; then
+          echo "✓ Compiler found: ${{ matrix.cc }}"
+          ${{ matrix.cc }} --version
+        else
+          echo "✗ Compiler not found: ${{ matrix.cc }}"
+          echo "Available compilers:"
+          ls /usr/local/bin/*gcc* || true
+          ls /usr/bin/*gcc* || true
+          exit 1
+        fi
+
+    - name: Build
+      run: |
+        export PATH="/usr/local/bin:$PATH"
+        make clean || true
+        
+        # Build with the cross-compiler
+        make TREE_DEST="${{ matrix.output }}" \
+             CC="${{ matrix.cc }}" \
+             CFLAGS="${{ matrix.cflags }}" \
+             LDFLAGS="${{ matrix.ldflags }}"
+        
+        # Verify the binary was created
+        ls -la ${{ matrix.output }}
+        file ${{ matrix.output }}
+        
+        # Create output directory and copy binary
+        mkdir -p dist
+        cp ${{ matrix.output }} dist/
+        
+        # Strip binary
+        strip dist/${{ matrix.output }} || true
+        
+        # Create info file
+        echo "Tree v2.2.1 - ${{ matrix.target }}" > dist/README.txt
+        echo "Built on: $(date)" >> dist/README.txt
+        echo "Compiler: ${{ matrix.cc }}" >> dist/README.txt
+        echo "Architecture: ${{ matrix.arch }}" >> dist/README.txt
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: tree-${{ matrix.target }}
+        path: dist/
+        retention-days: 30
+
+  release:
+    needs: build-cross
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release
+        
+        # Create compressed archives for each platform
+        for target in linux-arm64 linux-armhf alpine-x64 alpine-arm64; do
+          if [[ -d "artifacts/tree-$target" ]]; then
+            cd artifacts/tree-$target
+            
+            # Create tar.gz for the binary and info
+            tar -czf "../../release/tree-$target.tar.gz" *
+            
+            # Also create individual binary for direct download
+            cp tree "../../release/tree-$target-tree"
+            
+            cd ../..
+          fi
+        done
+        
+        # List all release files
+        ls -la release/
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: release/*
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+        body: |
+          ## Tree Command Line Tool - Cross-Platform Builds
+          
+          This release contains cross-compiled binaries for additional platforms:
+          
+          ### Additional Platforms
+          - **linux-arm64**: ARM 64-bit Linux (cross-compiled)
+          - **linux-armhf**: ARM 32-bit Linux (cross-compiled)
+          - **alpine-x64**: x86_64 Alpine Linux (musl libc)
+          - **alpine-arm64**: ARM 64-bit Alpine Linux (musl libc)
+          
+          ### Usage
+          
+          1. Download the appropriate binary for your platform
+          2. Extract the archive (if .tar.gz) or use the direct binary
+          3. Make executable: `chmod +x tree`
+          4. Run: `./tree --help`
+          
+          All binaries are statically linked for maximum compatibility.
+          
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

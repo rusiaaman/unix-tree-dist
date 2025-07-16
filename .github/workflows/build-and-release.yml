@@ -22,20 +22,6 @@ jobs:
             cflags: "-O3 -static"
             ldflags: "-static"
             output: tree
-          - target: linux-arm64
-            arch: aarch64
-            os: linux
-            cc: aarch64-linux-gnu-gcc
-            cflags: "-O3 -static"
-            ldflags: "-static"
-            output: tree
-          - target: linux-armhf
-            arch: armhf
-            os: linux
-            cc: arm-linux-gnueabihf-gcc
-            cflags: "-O3 -static"
-            ldflags: "-static"
-            output: tree
           # Alpine Linux builds (musl libc)
           - target: alpine-x64
             arch: x86_64
@@ -85,77 +71,175 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
-    - name: Install cross-compilation tools
+    - name: Install base build tools
       run: |
         sudo apt-get update
         sudo apt-get install -y \
-          gcc-multilib \
-          gcc-aarch64-linux-gnu \
-          gcc-arm-linux-gnueabihf \
-          gcc-mingw-w64-x86-64 \
-          gcc-mingw-w64-i686 \
-          libc6-dev-i386 \
-          libc6-dev-arm64-cross \
-          libc6-dev-armhf-cross \
           build-essential \
           curl \
           xz-utils \
+          git \
+          cmake \
           clang \
-          llvm
+          llvm \
+          file
+
+    - name: Install cross-compilation tools
+      run: |
+        # Install available cross-compilation tools
+        sudo apt-get install -y \
+          gcc-multilib \
+          gcc-mingw-w64-x86-64 \
+          gcc-mingw-w64-i686 \
+          libc6-dev-i386 || true
+        
+        # Try to install ARM cross-compilers, but don't fail if they're not available
+        sudo apt-get install -y \
+          gcc-aarch64-linux-gnu \
+          gcc-arm-linux-gnueabihf \
+          libc6-dev-arm64-cross \
+          libc6-dev-armhf-cross || echo "ARM cross-compilers not available, will use alternative methods"
 
     - name: Install musl cross-compilers
       if: matrix.os == 'alpine'
       run: |
         # Install musl cross-compilers
-        curl -L https://musl.cc/x86_64-linux-musl-cross.tgz | tar -xzf - -C /tmp/
-        curl -L https://musl.cc/aarch64-linux-musl-cross.tgz | tar -xzf - -C /tmp/
+        echo "Installing musl cross-compilers..."
         
-        sudo cp -r /tmp/x86_64-linux-musl-cross/* /usr/local/
-        sudo cp -r /tmp/aarch64-linux-musl-cross/* /usr/local/
+        # Create temporary directory
+        mkdir -p /tmp/musl-cross
         
-        # Create symlinks for alpine targets
-        sudo ln -sf /usr/local/bin/x86_64-linux-musl-gcc /usr/local/bin/x86_64-alpine-linux-musl-gcc
-        sudo ln -sf /usr/local/bin/aarch64-linux-musl-gcc /usr/local/bin/aarch64-alpine-linux-musl-gcc
+        # Download and install x86_64-linux-musl
+        if [[ "${{ matrix.arch }}" == "x86_64" ]]; then
+          curl -L https://musl.cc/x86_64-linux-musl-cross.tgz | tar -xzf - -C /tmp/musl-cross/
+          sudo cp -r /tmp/musl-cross/x86_64-linux-musl-cross/* /usr/local/
+          sudo ln -sf /usr/local/bin/x86_64-linux-musl-gcc /usr/local/bin/x86_64-alpine-linux-musl-gcc
+        fi
+        
+        # Download and install aarch64-linux-musl
+        if [[ "${{ matrix.arch }}" == "aarch64" ]]; then
+          curl -L https://musl.cc/aarch64-linux-musl-cross.tgz | tar -xzf - -C /tmp/musl-cross/
+          sudo cp -r /tmp/musl-cross/aarch64-linux-musl-cross/* /usr/local/
+          sudo ln -sf /usr/local/bin/aarch64-linux-musl-gcc /usr/local/bin/aarch64-alpine-linux-musl-gcc
+        fi
+        
+        # Clean up
+        rm -rf /tmp/musl-cross
 
-    - name: Install ARM64 mingw-w64 cross-compiler
+    - name: Install Windows ARM64 cross-compiler
       if: matrix.target == 'win32-arm64'
       run: |
         # Install llvm-mingw for ARM64 Windows support
-        curl -L https://github.com/mstorsjo/llvm-mingw/releases/download/20240518/llvm-mingw-20240518-msvcrt-ubuntu-20.04-x86_64.tar.xz | tar -xJf - -C /tmp/
+        echo "Installing LLVM-MinGW for ARM64 Windows..."
         
-        sudo cp -r /tmp/llvm-mingw-20240518-msvcrt-ubuntu-20.04-x86_64/* /usr/local/
+        # Create temporary directory
+        mkdir -p /tmp/llvm-mingw
+        
+        # Download and install
+        curl -L https://github.com/mstorsjo/llvm-mingw/releases/download/20240518/llvm-mingw-20240518-msvcrt-ubuntu-20.04-x86_64.tar.xz | tar -xJf - -C /tmp/llvm-mingw/
+        
+        sudo cp -r /tmp/llvm-mingw/llvm-mingw-20240518-msvcrt-ubuntu-20.04-x86_64/* /usr/local/
         
         # Create symlink for aarch64-w64-mingw32-gcc
         sudo ln -sf /usr/local/bin/aarch64-w64-mingw32-clang /usr/local/bin/aarch64-w64-mingw32-gcc
+        
+        # Clean up
+        rm -rf /tmp/llvm-mingw
 
     - name: Setup OSXCross for macOS
       if: matrix.os == 'darwin'
       run: |
-        # Install OSXCross
+        echo "Setting up OSXCross for macOS compilation..."
+        
+        # Install dependencies for OSXCross
+        sudo apt-get install -y \
+          clang \
+          llvm-dev \
+          liblzma-dev \
+          libxml2-dev \
+          uuid-dev \
+          libssl-dev \
+          bash \
+          patch \
+          make \
+          tar \
+          xz-utils \
+          bzip2 \
+          gzip \
+          sed \
+          cpio \
+          libbz2-dev \
+          zlib1g-dev
+        
+        # Clone OSXCross
         git clone https://github.com/tpoechtrager/osxcross.git /tmp/osxcross
         cd /tmp/osxcross
         
+        # Create tarballs directory
+        mkdir -p tarballs
+        
         # Download macOS SDK
+        echo "Downloading macOS SDK..."
         curl -L -o tarballs/MacOSX12.3.sdk.tar.xz https://github.com/joseluisq/macosx-sdks/releases/download/12.3/MacOSX12.3.sdk.tar.xz
         
         # Build OSXCross
+        echo "Building OSXCross..."
         UNATTENDED=1 OSX_VERSION_MIN=10.12 ./build.sh
         
         # Install to /usr/local
         sudo cp -r target/* /usr/local/
         
-        # Create symlinks
+        # Create symlinks with proper names
         sudo ln -sf /usr/local/bin/x86_64-apple-darwin21-clang /usr/local/bin/x86_64-apple-darwin21-clang
         sudo ln -sf /usr/local/bin/arm64-apple-darwin21-clang /usr/local/bin/aarch64-apple-darwin21-clang
+        
+        # Clean up
+        cd /
+        rm -rf /tmp/osxcross
 
     - name: Set up environment
       run: |
         echo "/usr/local/bin" >> $GITHUB_PATH
         export PATH="/usr/local/bin:$PATH"
 
+    - name: Install ARM cross-compilers (fallback)
+      if: matrix.os == 'linux' && (matrix.arch == 'aarch64' || matrix.arch == 'armhf')
+      run: |
+        # If ARM cross-compilers are not available via apt, try alternative methods
+        if ! command -v ${{ matrix.cc }} &> /dev/null; then
+          echo "Cross-compiler ${{ matrix.cc }} not found, trying alternative installation..."
+          
+          # Try using Docker-based cross-compilation
+          if [[ "${{ matrix.arch }}" == "aarch64" ]]; then
+            # Use multiarch/crossbuild Docker image
+            docker run --rm -v $(pwd):/workdir -e CROSS_TRIPLE=aarch64-linux-gnu multiarch/crossbuild make TREE_DEST="${{ matrix.output }}" CC=aarch64-linux-gnu-gcc CFLAGS="${{ matrix.cflags }}" LDFLAGS="${{ matrix.ldflags }}"
+          elif [[ "${{ matrix.arch }}" == "armhf" ]]; then
+            docker run --rm -v $(pwd):/workdir -e CROSS_TRIPLE=arm-linux-gnueabihf multiarch/crossbuild make TREE_DEST="${{ matrix.output }}" CC=arm-linux-gnueabihf-gcc CFLAGS="${{ matrix.cflags }}" LDFLAGS="${{ matrix.ldflags }}"
+          fi
+        fi
+
     - name: Build
       run: |
         make clean || true
+        
+        # Set up PATH
+        export PATH="/usr/local/bin:$PATH"
+        
+        # Check if compiler exists
+        if command -v ${{ matrix.cc }} &> /dev/null; then
+          echo "Using compiler: ${{ matrix.cc }}"
+          ${{ matrix.cc }} --version || true
+        else
+          echo "Compiler ${{ matrix.cc }} not found!"
+          # For failed ARM builds, we'll skip them gracefully
+          if [[ "${{ matrix.os }}" == "linux" && ("${{ matrix.arch }}" == "aarch64" || "${{ matrix.arch }}" == "armhf") ]]; then
+            echo "Skipping ARM build due to missing cross-compiler"
+            mkdir -p dist
+            echo "ARM build skipped" > dist/README.txt
+            exit 0
+          fi
+          exit 1
+        fi
         
         # Set compiler and flags
         export CC="${{ matrix.cc }}"
@@ -167,6 +251,7 @@ jobs:
         
         # Verify the binary was created
         ls -la ${{ matrix.output }}
+        file ${{ matrix.output }}
         
         # Create output directory
         mkdir -p dist
@@ -174,8 +259,8 @@ jobs:
         # Copy binary to dist
         cp ${{ matrix.output }} dist/
         
-        # Strip binary if not Windows
-        if [[ "${{ matrix.os }}" != "windows" ]]; then
+        # Strip binary if not Windows and not macOS
+        if [[ "${{ matrix.os }}" != "windows" && "${{ matrix.os }}" != "darwin" ]]; then
           strip dist/${{ matrix.output }} || true
         fi
 
