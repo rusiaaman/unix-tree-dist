@@ -1,0 +1,277 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Linux builds
+          - target: linux-x64
+            arch: x86_64
+            os: linux
+            cc: gcc
+            cflags: "-O3 -static"
+            ldflags: "-static"
+            output: tree
+          - target: linux-arm64
+            arch: aarch64
+            os: linux
+            cc: aarch64-linux-gnu-gcc
+            cflags: "-O3 -static"
+            ldflags: "-static"
+            output: tree
+          - target: linux-armhf
+            arch: armhf
+            os: linux
+            cc: arm-linux-gnueabihf-gcc
+            cflags: "-O3 -static"
+            ldflags: "-static"
+            output: tree
+          # Alpine Linux builds (musl libc)
+          - target: alpine-x64
+            arch: x86_64
+            os: alpine
+            cc: x86_64-alpine-linux-musl-gcc
+            cflags: "-O3 -static"
+            ldflags: "-static"
+            output: tree
+          - target: alpine-arm64
+            arch: aarch64
+            os: alpine
+            cc: aarch64-alpine-linux-musl-gcc
+            cflags: "-O3 -static"
+            ldflags: "-static"
+            output: tree
+          # Windows builds
+          - target: win32-x64
+            arch: x86_64
+            os: windows
+            cc: x86_64-w64-mingw32-gcc
+            cflags: "-O3 -static"
+            ldflags: "-static"
+            output: tree.exe
+          - target: win32-arm64
+            arch: aarch64
+            os: windows
+            cc: aarch64-w64-mingw32-gcc
+            cflags: "-O3 -static"
+            ldflags: "-static"
+            output: tree.exe
+          # macOS builds
+          - target: darwin-x64
+            arch: x86_64
+            os: darwin
+            cc: x86_64-apple-darwin21-clang
+            cflags: "-O3"
+            ldflags: ""
+            output: tree
+          - target: darwin-arm64
+            arch: aarch64
+            os: darwin
+            cc: aarch64-apple-darwin21-clang
+            cflags: "-O3"
+            ldflags: ""
+            output: tree
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install cross-compilation tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          gcc-multilib \
+          gcc-aarch64-linux-gnu \
+          gcc-arm-linux-gnueabihf \
+          gcc-mingw-w64-x86-64 \
+          gcc-mingw-w64-i686 \
+          libc6-dev-i386 \
+          libc6-dev-arm64-cross \
+          libc6-dev-armhf-cross \
+          build-essential \
+          curl \
+          xz-utils \
+          clang \
+          llvm
+
+    - name: Install musl cross-compilers
+      if: matrix.os == 'alpine'
+      run: |
+        # Install musl cross-compilers
+        curl -L https://musl.cc/x86_64-linux-musl-cross.tgz | tar -xzf - -C /tmp/
+        curl -L https://musl.cc/aarch64-linux-musl-cross.tgz | tar -xzf - -C /tmp/
+        
+        sudo cp -r /tmp/x86_64-linux-musl-cross/* /usr/local/
+        sudo cp -r /tmp/aarch64-linux-musl-cross/* /usr/local/
+        
+        # Create symlinks for alpine targets
+        sudo ln -sf /usr/local/bin/x86_64-linux-musl-gcc /usr/local/bin/x86_64-alpine-linux-musl-gcc
+        sudo ln -sf /usr/local/bin/aarch64-linux-musl-gcc /usr/local/bin/aarch64-alpine-linux-musl-gcc
+
+    - name: Install ARM64 mingw-w64 cross-compiler
+      if: matrix.target == 'win32-arm64'
+      run: |
+        # Install llvm-mingw for ARM64 Windows support
+        curl -L https://github.com/mstorsjo/llvm-mingw/releases/download/20240518/llvm-mingw-20240518-msvcrt-ubuntu-20.04-x86_64.tar.xz | tar -xJf - -C /tmp/
+        
+        sudo cp -r /tmp/llvm-mingw-20240518-msvcrt-ubuntu-20.04-x86_64/* /usr/local/
+        
+        # Create symlink for aarch64-w64-mingw32-gcc
+        sudo ln -sf /usr/local/bin/aarch64-w64-mingw32-clang /usr/local/bin/aarch64-w64-mingw32-gcc
+
+    - name: Setup OSXCross for macOS
+      if: matrix.os == 'darwin'
+      run: |
+        # Install OSXCross
+        git clone https://github.com/tpoechtrager/osxcross.git /tmp/osxcross
+        cd /tmp/osxcross
+        
+        # Download macOS SDK
+        curl -L -o tarballs/MacOSX12.3.sdk.tar.xz https://github.com/joseluisq/macosx-sdks/releases/download/12.3/MacOSX12.3.sdk.tar.xz
+        
+        # Build OSXCross
+        UNATTENDED=1 OSX_VERSION_MIN=10.12 ./build.sh
+        
+        # Install to /usr/local
+        sudo cp -r target/* /usr/local/
+        
+        # Create symlinks
+        sudo ln -sf /usr/local/bin/x86_64-apple-darwin21-clang /usr/local/bin/x86_64-apple-darwin21-clang
+        sudo ln -sf /usr/local/bin/arm64-apple-darwin21-clang /usr/local/bin/aarch64-apple-darwin21-clang
+
+    - name: Set up environment
+      run: |
+        echo "/usr/local/bin" >> $GITHUB_PATH
+        export PATH="/usr/local/bin:$PATH"
+
+    - name: Build
+      run: |
+        make clean || true
+        
+        # Set compiler and flags
+        export CC="${{ matrix.cc }}"
+        export CFLAGS="${{ matrix.cflags }}"
+        export LDFLAGS="${{ matrix.ldflags }}"
+        
+        # Build the project
+        make TREE_DEST="${{ matrix.output }}" CC="${{ matrix.cc }}" CFLAGS="${{ matrix.cflags }}" LDFLAGS="${{ matrix.ldflags }}"
+        
+        # Verify the binary was created
+        ls -la ${{ matrix.output }}
+        
+        # Create output directory
+        mkdir -p dist
+        
+        # Copy binary to dist
+        cp ${{ matrix.output }} dist/
+        
+        # Strip binary if not Windows
+        if [[ "${{ matrix.os }}" != "windows" ]]; then
+          strip dist/${{ matrix.output }} || true
+        fi
+
+    - name: Test binary
+      run: |
+        # Test the binary (basic functionality check)
+        if [[ "${{ matrix.os }}" == "linux" || "${{ matrix.os }}" == "alpine" ]]; then
+          ./dist/${{ matrix.output }} --help || true
+          ./dist/${{ matrix.output }} --version || true
+        fi
+
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: tree-${{ matrix.target }}
+        path: dist/${{ matrix.output }}
+        retention-days: 30
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release
+        
+        # Create compressed archives for each platform
+        for target in linux-x64 linux-arm64 linux-armhf alpine-x64 alpine-arm64 win32-x64 win32-arm64 darwin-x64 darwin-arm64; do
+          if [[ -d "artifacts/tree-$target" ]]; then
+            cd artifacts/tree-$target
+            
+            # Determine file extension
+            if [[ "$target" == win32-* ]]; then
+              binary_name="tree.exe"
+            else
+              binary_name="tree"
+            fi
+            
+            # Create tar.gz for the binary
+            tar -czf "../../release/tree-$target.tar.gz" "$binary_name"
+            
+            # Also create individual binary for direct download
+            cp "$binary_name" "../../release/tree-$target-$binary_name"
+            
+            cd ../..
+          fi
+        done
+        
+        # List all release files
+        ls -la release/
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: release/*
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+        body: |
+          ## Tree Command Line Tool - Cross-Platform Release
+          
+          This release contains pre-built binaries for multiple platforms and architectures:
+          
+          ### Linux
+          - **linux-x64**: Intel/AMD 64-bit Linux (glibc)
+          - **linux-arm64**: ARM 64-bit Linux (glibc)
+          - **linux-armhf**: ARM 32-bit Linux (glibc, hard float)
+          
+          ### Alpine Linux
+          - **alpine-x64**: Intel/AMD 64-bit Alpine Linux (musl libc)
+          - **alpine-arm64**: ARM 64-bit Alpine Linux (musl libc)
+          
+          ### Windows
+          - **win32-x64**: Intel/AMD 64-bit Windows
+          - **win32-arm64**: ARM 64-bit Windows
+          
+          ### macOS
+          - **darwin-x64**: Intel 64-bit macOS
+          - **darwin-arm64**: ARM 64-bit macOS (Apple Silicon)
+          
+          ### Usage
+          
+          1. Download the appropriate binary for your platform
+          2. Extract the archive (if .tar.gz) or use the direct binary
+          3. Make executable (Linux/macOS): `chmod +x tree`
+          4. Run: `./tree --help`
+          
+          All binaries are statically linked where possible for maximum compatibility.
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

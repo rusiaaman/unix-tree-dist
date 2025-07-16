@@ -1,0 +1,124 @@
+# Cross-compilation Makefile for tree
+# This file provides examples for cross-compiling tree for different platforms
+
+# Default values from original Makefile
+VERSION=2.2.1
+TREE_DEST?=tree
+DESTDIR?=${PREFIX}/bin
+MAN=tree.1
+MANDIR?=${PREFIX}/man
+OBJS=tree.o list.o hash.o color.o file.o filter.o info.o unix.o xml.o json.o html.o strverscmp.o
+
+# Cross-compilation defaults
+CC?=gcc
+CFLAGS?=-O3 -std=c11 -Wpedantic -Wall -Wextra -Wstrict-prototypes -Wshadow -Wconversion
+CPPFLAGS?=-DLARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64
+LDFLAGS?=-s
+
+# Platform-specific configurations
+ifeq ($(TARGET),linux-x64)
+	CC=gcc
+	CFLAGS+=-static
+	LDFLAGS+=-static
+endif
+
+ifeq ($(TARGET),linux-arm64)
+	CC=aarch64-linux-gnu-gcc
+	CFLAGS+=-static
+	LDFLAGS+=-static
+endif
+
+ifeq ($(TARGET),linux-armhf)
+	CC=arm-linux-gnueabihf-gcc
+	CFLAGS+=-static
+	LDFLAGS+=-static
+endif
+
+ifeq ($(TARGET),alpine-x64)
+	CC=x86_64-linux-musl-gcc
+	CFLAGS+=-static
+	LDFLAGS+=-static
+endif
+
+ifeq ($(TARGET),alpine-arm64)
+	CC=aarch64-linux-musl-gcc
+	CFLAGS+=-static
+	LDFLAGS+=-static
+endif
+
+ifeq ($(TARGET),win32-x64)
+	CC=x86_64-w64-mingw32-gcc
+	TREE_DEST=tree.exe
+	CFLAGS+=-static
+	LDFLAGS+=-static
+endif
+
+ifeq ($(TARGET),win32-arm64)
+	CC=aarch64-w64-mingw32-gcc
+	TREE_DEST=tree.exe
+	CFLAGS+=-static
+	LDFLAGS+=-static
+endif
+
+ifeq ($(TARGET),darwin-x64)
+	CC=x86_64-apple-darwin21-clang
+	CFLAGS+=-mmacosx-version-min=10.12
+	LDFLAGS+=-mmacosx-version-min=10.12
+endif
+
+ifeq ($(TARGET),darwin-arm64)
+	CC=aarch64-apple-darwin21-clang
+	CFLAGS+=-mmacosx-version-min=11.0
+	LDFLAGS+=-mmacosx-version-min=11.0
+endif
+
+# Build rules
+all: $(TREE_DEST)
+
+$(TREE_DEST): $(OBJS)
+	$(CC) $(LDFLAGS) -o $(TREE_DEST) $(OBJS)
+
+$(OBJS): %.o: %.c tree.h
+	$(CC) $(CFLAGS) $(CPPFLAGS) -c -o $@ $<
+
+clean:
+	rm -f $(TREE_DEST) tree tree.exe *.o *~
+
+install: $(TREE_DEST)
+	install -d $(DESTDIR)
+	install -d $(MANDIR)/man1
+	install $(TREE_DEST) $(DESTDIR)/$(TREE_DEST)
+	install -m 644 doc/$(MAN) $(MANDIR)/man1/$(MAN)
+
+# Helper targets for cross-compilation
+linux-x64:
+	$(MAKE) -f Makefile.cross TARGET=linux-x64
+
+linux-arm64:
+	$(MAKE) -f Makefile.cross TARGET=linux-arm64
+
+linux-armhf:
+	$(MAKE) -f Makefile.cross TARGET=linux-armhf
+
+alpine-x64:
+	$(MAKE) -f Makefile.cross TARGET=alpine-x64
+
+alpine-arm64:
+	$(MAKE) -f Makefile.cross TARGET=alpine-arm64
+
+win32-x64:
+	$(MAKE) -f Makefile.cross TARGET=win32-x64
+
+win32-arm64:
+	$(MAKE) -f Makefile.cross TARGET=win32-arm64
+
+darwin-x64:
+	$(MAKE) -f Makefile.cross TARGET=darwin-x64
+
+darwin-arm64:
+	$(MAKE) -f Makefile.cross TARGET=darwin-arm64
+
+# Build all targets (requires all cross-compilers to be installed)
+all-targets: linux-x64 linux-arm64 linux-armhf alpine-x64 alpine-arm64 win32-x64 win32-arm64 darwin-x64 darwin-arm64
+
+.PHONY: all clean install linux-x64 linux-arm64 linux-armhf alpine-x64 alpine-arm64 win32-x64 win32-arm64 darwin-x64 darwin-arm64 all-targets
