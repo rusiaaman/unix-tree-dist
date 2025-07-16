@@ -107,14 +107,14 @@ jobs:
               
               # Create wrapper script for musl cross-compilation
               cat > /tmp/aarch64-linux-musl-gcc << 'EOF'
-#!/bin/bash
-# ARM64 musl cross-compiler wrapper
-exec aarch64-linux-gnu-gcc -static -nostdlib \
-  -I/usr/aarch64-linux-gnu/include \
-  -L/usr/aarch64-linux-gnu/lib \
-  "$@" \
-  -lc -lgcc -lgcc_s
-EOF
+          #!/bin/bash
+          # ARM64 musl cross-compiler wrapper
+          exec aarch64-linux-gnu-gcc -static -nostdlib \
+            -I/usr/aarch64-linux-gnu/include \
+            -L/usr/aarch64-linux-gnu/lib \
+            "$@" \
+            -lc -lgcc -lgcc_s
+          EOF
               chmod +x /tmp/aarch64-linux-musl-gcc
               sudo cp /tmp/aarch64-linux-musl-gcc /usr/local/bin/
             fi
