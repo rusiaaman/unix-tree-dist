@@ -21,9 +21,31 @@ The automated build system creates binaries for the following platforms:
 ### Planned/Experimental
 - **win32-arm64**: ARM 64-bit Windows (requires LLVM-MinGW)
 
+## Build Status
+
+[![Build Native](https://github.com/rusiaaman/unix-tree-dist/actions/workflows/build-native.yml/badge.svg)](https://github.com/rusiaaman/unix-tree-dist/actions/workflows/build-native.yml)
+[![Build Cross-Platform](https://github.com/rusiaaman/unix-tree-dist/actions/workflows/build-cross.yml/badge.svg)](https://github.com/rusiaaman/unix-tree-dist/actions/workflows/build-cross.yml)
+[![Test Build](https://github.com/rusiaaman/unix-tree-dist/actions/workflows/test.yml/badge.svg)](https://github.com/rusiaaman/unix-tree-dist/actions/workflows/test.yml)
+
 ## Download
 
 Pre-built binaries are available on the [Releases](../../releases) page. Download the appropriate binary for your platform.
+
+### Quick Install
+
+Use the install script to automatically download the right binary for your system:
+
+```bash
+curl -sSL https://raw.githubusercontent.com/rusiaaman/unix-tree-dist/main/install.sh | bash
+```
+
+Or download and run with options:
+
+```bash
+curl -O https://raw.githubusercontent.com/rusiaaman/unix-tree-dist/main/install.sh
+chmod +x install.sh
+./install.sh --help
+```
 
 ## Usage
 
